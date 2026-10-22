@@ -1936,6 +1936,15 @@ ROUTES = [
 	),
 	R(
 		"get",
+		"/v1/loan-applications/basic-profile",
+		"Get the signed-in farmer's own basic profile",
+		"Loan Underwriting",
+		"bearer",
+		response="LoanApplicationBasicProfileData",
+		legacy="oan_a2c.api.v1.loan_applications.get_basic_profile",
+	),
+	R(
+		"get",
 		"/v1/loan-applications/{id}/basic-profile",
 		"Get the applicant's basic profile",
 		"Loan Underwriting",

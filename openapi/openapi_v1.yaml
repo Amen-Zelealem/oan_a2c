@@ -2989,6 +2989,33 @@ paths:
         '500': *id006
       security:
       - BearerAuth: []
+  /v1/loan-applications/basic-profile:
+    get:
+      summary: Get the signed-in farmer's own basic profile
+      tags:
+      - Loan Underwriting
+      operationId: get_v1_loan-applications_basic-profile
+      x-legacy-rpc-method: oan_a2c.api.v1.loan_applications.get_basic_profile
+      responses:
+        '200':
+          description: Successful operation.
+          content:
+            application/json:
+              schema:
+                allOf:
+                - $ref: '#/components/schemas/StandardSuccessResponse'
+                - type: object
+                  properties:
+                    data:
+                      $ref: '#/components/schemas/LoanApplicationBasicProfileData'
+        '400': *id001
+        '401': *id002
+        '403': *id003
+        '404': *id004
+        '429': *id005
+        '500': *id006
+      security:
+      - BearerAuth: []
   /v1/loan-applications/{id}/basic-profile:
     get:
       summary: Get the applicant's basic profile
