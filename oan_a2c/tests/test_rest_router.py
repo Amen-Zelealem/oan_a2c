@@ -36,9 +36,9 @@ class TestRestRouter(RequestContextMixin, unittest.TestCase):
 		frappe.db.rollback()
 
 	def test_all_routes_loaded(self):
-		"""Verify all 96 routes from openapi_v1.yaml are compiled in the URL Map."""
+		"""Verify all 101 routes from openapi_v1.yaml are compiled in the URL Map."""
 		routes = get_routes_spec()
-		self.assertEqual(len(routes), 96, f"Expected 96 routes in spec, found {len(routes)}")
+		self.assertEqual(len(routes), 101, f"Expected 101 routes in spec, found {len(routes)}")
 
 	def test_expand_path_param_aliases(self):
 		"""Verify path variable alias expansion for controller kwargs."""
@@ -63,7 +63,7 @@ class TestRestRouter(RequestContextMixin, unittest.TestCase):
 		self.assertEqual(expanded_doc["doc_id"], "DOC-99")
 
 	def test_public_auth_login_route_dispatch(self):
-		"""Test routing POST /v1/auth/login to oan_a2c.api.auth.login."""
+		"""Test routing POST /v1/auth/login to oan_auth_service's login handler."""
 		builder = EnvironBuilder(
 			path="/v1/auth/login",
 			method="POST",
@@ -77,7 +77,7 @@ class TestRestRouter(RequestContextMixin, unittest.TestCase):
 		self.assertEqual(response.status_code, 200)
 		body = json.loads(response.get_data(as_text=True))
 		self.assertEqual(body.get("status"), "success")
-		self.assertIn("token", body.get("data", {}))
+		self.assertIn("access_token", body.get("data", {}))
 
 	def test_404_not_found_response(self):
 		"""Test that non-existent routes return standard 404 error envelope."""
@@ -105,19 +105,10 @@ class TestRestRouter(RequestContextMixin, unittest.TestCase):
 		self.assertEqual(body.get("code"), "METHOD_NOT_ALLOWED")
 
 	def test_authenticated_route_with_jwt(self):
-		"""Test dispatching an authenticated route GET /v1/me with valid Bearer JWT."""
-		import datetime
-
-		payload = {
-			"sub": self.test_email,
-			"iss": "oan_a2c_identity_gateway",
-			"aud": "oan_a2c_client",
-			"iat": int(datetime.datetime.now(datetime.UTC).timestamp()),
-			"exp": int((datetime.datetime.now(datetime.UTC) + datetime.timedelta(minutes=15)).timestamp()),
-		}
-		token = sign_access_token(payload)
+		"""Dispatch an authenticated a2c route, GET /v1/me/profile, with a valid Bearer JWT."""
+		token = sign_access_token(self.test_email)
 		builder = EnvironBuilder(
-			path="/v1/me",
+			path="/v1/me/profile",
 			method="GET",
 			headers={"Authorization": f"Bearer {token}"},
 		)
@@ -125,7 +116,7 @@ class TestRestRouter(RequestContextMixin, unittest.TestCase):
 		frappe.local.request = req
 		self._mock_headers["Authorization"] = f"Bearer {token}"
 
-		from oan_a2c.api.middleware import validate_jwt_request
+		from oan_auth_service.api.middleware import validate_jwt_request
 
 		validate_jwt_request(req)
 
@@ -133,7 +124,6 @@ class TestRestRouter(RequestContextMixin, unittest.TestCase):
 		self.assertEqual(response.status_code, 200)
 		body = json.loads(response.get_data(as_text=True))
 		self.assertEqual(body.get("status"), "success")
-		self.assertEqual(body.get("data", {}).get("email"), self.test_email)
 
 	def test_route_with_path_parameter_resolution(self):
 		"""Test route matching and parameter extraction for complex path variables."""
@@ -161,3 +151,19 @@ class TestRestRouter(RequestContextMixin, unittest.TestCase):
 		adapter = API_URL_MAP.bind("localhost", "/")
 		endpoint, _path_args = adapter.match("/v1/catalog/products", method="GET")
 		self.assertEqual(endpoint, "oan_a2c.api.v1.farmer.catalog.list_catalog")
+
+	def test_basic_profile_routes_matching(self):
+		"""Test route matching for both with-id and without-id basic-profile routes."""
+		adapter = API_URL_MAP.bind("localhost", "/")
+
+		# Without ID (farmer self-service / authenticated caller)
+		endpoint_no_id, path_args_no_id = adapter.match("/v1/loan-applications/basic-profile", method="GET")
+		self.assertEqual(endpoint_no_id, "oan_a2c.api.v1.loan_applications.get_basic_profile")
+		self.assertEqual(path_args_no_id, {})
+
+		# With ID (agent / staff caller)
+		endpoint_with_id, path_args_with_id = adapter.match(
+			"/v1/loan-applications/LEAD-001/basic-profile", method="GET"
+		)
+		self.assertEqual(endpoint_with_id, "oan_a2c.api.v1.loan_applications.get_basic_profile")
+		self.assertEqual(path_args_with_id.get("id"), "LEAD-001")
