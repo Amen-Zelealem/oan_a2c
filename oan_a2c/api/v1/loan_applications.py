@@ -124,6 +124,18 @@ class AssignLoanOfficerSchema(BaseModel):
 	loan_officer: str = Field(..., min_length=1, max_length=140)
 
 
+def _require_draft_for_farmer(application_id):
+	"""A farmer may change an application's documents only while it is a draft (status Active, before submit).
+
+	After submission the bank reviews those files, so they must not change under it.
+	Other roles are not limited here: their access is already scoped by bank and DocPerm.
+	"""
+	if is_farmer() and frappe.db.get_value("A2C Loan Application", application_id, "status") != "Active":
+		frappe.throw(
+			_("Documents can only be changed while the application is a draft."), frappe.PermissionError
+		)
+
+
 def _get_app(application_id):
 	if not frappe.db.exists("A2C Loan Application", application_id):
 		frappe.throw(_("Loan Application {0} not found").format(application_id), frappe.DoesNotExistError)
@@ -315,7 +327,10 @@ def get_basic_profile(lead_id: str | None = None, include_consent_data: bool | N
 	if consent_id:
 		consent_doc_data = (
 			frappe.db.get_value(
-				"A2C Consent Request", consent_id, ["status", "otp_verified_at"], as_dict=True
+				"A2C Consent Request",
+				consent_id,
+				["status", "otp_verified_at", "farmer_fayda_id"],
+				as_dict=True,
 			)
 			or {}
 		)
@@ -323,6 +338,7 @@ def get_basic_profile(lead_id: str | None = None, include_consent_data: bool | N
 			"name": consent_id,
 			"status": consent_doc_data.get("status"),
 			"otp_verified": bool(consent_doc_data.get("otp_verified_at")),
+			"farmer_fayda_id": consent_doc_data.get("farmer_fayda_id"),
 		}
 		if include_consent_data:
 			data.update(_get_consent_details(consent_id))
@@ -745,6 +761,7 @@ def upload_supporting_documents(**kwargs):
 	application_id = kwargs.get("application_id")
 
 	frappe.has_permission("A2C Loan Application", "write", doc=application_id, throw=True)
+	_require_draft_for_farmer(application_id)
 	doc = _get_app(application_id)
 
 	if not frappe.request.files:
@@ -882,7 +899,9 @@ def download_supporting_document(**kwargs):
 		frappe.throw(_("File not found"), frappe.DoesNotExistError)
 
 	frappe.local.response.filename = file_doc.file_name
-	frappe.local.response.filecontent = file_doc.get_content()
+	# Raw bytes: pass empty encodings to bypass text decoding in File.get_content(),
+	# which corrupts binary files once re-encoded for the response.
+	frappe.local.response.filecontent = file_doc.get_content(encodings=())
 	frappe.local.response.type = "download"
 	if view:
 		frappe.local.response.display_content_as = "inline"
@@ -898,6 +917,7 @@ def delete_supporting_document(**kwargs):
 	file_id = kwargs.get("file_id")
 
 	frappe.has_permission("A2C Loan Application", "write", doc=application_id, throw=True)
+	_require_draft_for_farmer(application_id)
 	_get_app(application_id)
 
 	if not frappe.db.exists(
