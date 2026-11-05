@@ -13,6 +13,7 @@ Usage:
     python3 apisix/generate_apisix_config_from_spec.py
 """
 
+import utils.session
 import copy
 import importlib.util
 from pathlib import Path
